@@ -119,18 +119,19 @@ class kmsBase:
 
         def serverLogic(self, kmsRequest):
                 if self.config['sqlite'] and self.config['dbSupport']:
-                        self.dbName = 'clients.db'
+                        self.dbName = os.path.dirname(os.path.abspath( __file__ )) + '/clients.db'
                         if not os.path.isfile(self.dbName):
                                 # Initialize the database.
                                 con = None
                                 try:
                                         con = sqlite3.connect(self.dbName)
                                         cur = con.cursor()
-                                        cur.execute("CREATE TABLE clients(clientMachineId TEXT, machineName TEXT, applicationId TEXT, \
-skuId TEXT, licenseStatus TEXT, lastRequestTime INTEGER, kmsEpid TEXT, requestCount INTEGER)")
+                                        cur.execute("CREATE TABLE clients(clientMachineId TEXT, machineName TEXT, machineIp TEXT, applicationId TEXT, \
+skuId TEXT, licenseStatus TEXT, lastRequestTime INTEGER, lastRequestTimeReadable INTEGER , kmsEpid TEXT, requestCount INTEGER)")
 
                                 except sqlite3.Error as e:
-                                        logging.error("Error %s:" % e.args[0])
+                                        logging.error("Caught sqlite3 Error %s:" % e.args[0])
+                                        logging.error("Values of sqlite and dbSupport are %s and %s" % (self.config['sqlite'] , self.config['dbSupport']))
                                         sys.exit(1)
 
                                 finally:
@@ -196,54 +197,56 @@ skuId TEXT, licenseStatus TEXT, lastRequestTime INTEGER, kmsEpid TEXT, requestCo
 
                 infoDict = {
                         "machineName" : kmsRequest.getMachineName(),
+                        "machineIp" : self.config["machineIp"],
                         "clientMachineId" : str(clientMachineId),
                         "appId" : appName,
                         "skuId" : skuName,
                         "licenseStatus" : kmsRequest.getLicenseStatus(),
                         "requestTime" : int(time.time()),
-                        "kmsEpid" : None
+                        "requestTimeReadable" : local_dt.strftime('%Y-%m-%d %H:%M:%S %Z (UTC%z)')
                 }
 
                 #print infoDict
                 logging.info("Machine Name: %s" % infoDict["machineName"])
+                logging.info("Machine IP: %s" % infoDict["machineIp"])
                 logging.info("Client Machine ID: %s" % infoDict["clientMachineId"])
                 logging.info("Application ID: %s" % infoDict["appId"])
                 logging.info("SKU ID: %s" % infoDict["skuId"])
                 logging.info("License Status: %s" % infoDict["licenseStatus"])
-                logging.info("Request Time: %s" % local_dt.strftime('%Y-%m-%d %H:%M:%S %Z (UTC%z)'))
+                logging.info("Request Time: %s" % infoDict["requestTimeReadable"])
 
                 if self.config['sqlite'] and self.config['dbSupport']:
                         con = None
                         try:
                                 con = sqlite3.connect(self.dbName)
                                 cur = con.cursor()
-                                cur.execute("SELECT * FROM clients WHERE clientMachineId=:clientMachineId;", infoDict)
+                                cur.execute("SELECT * FROM clients WHERE clientMachineId=:clientMachineId and skuId=:skuId;", infoDict)
                                 try:
                                         data = cur.fetchone()
                                         if not data:
                                                 #print "Inserting row..."
-                                                cur.execute("INSERT INTO clients (clientMachineId, machineName, applicationId, \
-skuId, licenseStatus, lastRequestTime, requestCount) VALUES (:clientMachineId, :machineName, :appId, :skuId, :licenseStatus, :requestTime, 1);", infoDict)
+                                                cur.execute("INSERT INTO clients (clientMachineId, machineName, machineIp, applicationId, \
+skuId, licenseStatus, lastRequestTime, lastRequestTimeReadable, requestCount) VALUES (:clientMachineId, :machineName, :machineIp, :appId, :skuId, :licenseStatus, :requestTime, :requestTimeReadable, 1);", infoDict)
                                         else:
                                                 #print "Data:", data
                                                 if data[1] != infoDict["machineName"]:
                                                         cur.execute("UPDATE clients SET machineName=:machineName WHERE \
-clientMachineId=:clientMachineId;", infoDict)
-                                                if data[2] != infoDict["appId"]:
+clientMachineId=:clientMachineId and skuId=:skuId;", infoDict)
+                                                if data[2] != infoDict["machineIp"]:
+                                                        cur.execute("UPDATE clients SET machineIp=:machineIp WHERE \
+clientMachineId=:clientMachineId and skuId=:skuId;", infoDict)
+                                                if data[3] != infoDict["appId"]:
                                                         cur.execute("UPDATE clients SET applicationId=:appId WHERE \
-clientMachineId=:clientMachineId;", infoDict)
-                                                if data[3] != infoDict["skuId"]:
-                                                        cur.execute("UPDATE clients SET skuId=:skuId WHERE \
-clientMachineId=:clientMachineId;", infoDict)
-                                                if data[4] != infoDict["licenseStatus"]:
+clientMachineId=:clientMachineId and skuId=:skuId;", infoDict)
+                                                if data[5] != infoDict["licenseStatus"]:
                                                         cur.execute("UPDATE clients SET licenseStatus=:licenseStatus WHERE \
-clientMachineId=:clientMachineId;", infoDict)
-                                                if data[5] != infoDict["requestTime"]:
-                                                        cur.execute("UPDATE clients SET lastRequestTime=:requestTime WHERE \
-clientMachineId=:clientMachineId;", infoDict)
+clientMachineId=:clientMachineId and skuId=:skuId;", infoDict)
+                                                if data[6] != infoDict["requestTime"]:
+                                                        cur.execute("UPDATE clients SET lastRequestTime=:requestTime , lastRequestTimeReadable=:requestTimeReadable WHERE \
+clientMachineId=:clientMachineId and skuId=:skuId;", infoDict)
                                                 # Increment requestCount
                                                 cur.execute("UPDATE clients SET requestCount=requestCount+1 WHERE \
-clientMachineId=:clientMachineId;", infoDict)
+clientMachineId=:clientMachineId and skuId=:skuId;", infoDict)
 
                                 except sqlite3.Error as e:
                                         logging.error("Error %s:" % e.args[0])
@@ -256,9 +259,9 @@ clientMachineId=:clientMachineId;", infoDict)
                                         con.commit()
                                         con.close()
 
-                return self.createKmsResponse(kmsRequest, currentClientCount)
+                return self.createKmsResponse(kmsRequest, currentClientCount, skuName)
 
-        def createKmsResponse(self, kmsRequest, currentClientCount):
+        def createKmsResponse(self, kmsRequest, currentClientCount, skuName):
                 response = self.kmsResponseStruct()
                 response['versionMinor'] = kmsRequest['versionMinor']
                 response['versionMajor'] = kmsRequest['versionMajor']
@@ -280,20 +283,22 @@ clientMachineId=:clientMachineId;", infoDict)
                         try:
                                 con = sqlite3.connect(self.dbName)
                                 cur = con.cursor()
-                                cur.execute("SELECT * FROM clients WHERE clientMachineId=?;", [str(kmsRequest['clientMachineId'].get())])
+                                logging.debug("skuName (skuId in DB) is: %s" % str(skuName))
+                                logging.debug("clientMachineId is: %s" % str(kmsRequest['clientMachineId'].get()))
+                                cur.execute("SELECT kmsEpid FROM clients WHERE clientMachineId=? and skuId=?;", (str(kmsRequest['clientMachineId'].get()), str(skuName)))
                                 try:
                                         data = cur.fetchone()
-                                        if data[6]:
-                                                response["kmsEpid"] = data[6].encode('utf-16le')
+                                        if data[0]:
+                                                response["kmsEpid"] = data[0].encode('utf-16le')
                                         else:
-                                                cur.execute("UPDATE clients SET kmsEpid=? WHERE clientMachineId=?;",
-                                                            (str(response["kmsEpid"].decode('utf-16le')), str(kmsRequest['clientMachineId'].get())))
+                                                cur.execute("UPDATE clients SET kmsEpid=? WHERE clientMachineId=? and skuId=?;",
+                                                            (str(response["kmsEpid"].decode('utf-16le')), str(kmsRequest['clientMachineId'].get()), str(skuName)))
 
                                 except sqlite3.Error as e:
-                                        logging.error("Error %s:" % e.args[0])
+                                        logging.error("Error SQLite UPDATE: %s" % e.args[0])
                                         
                         except sqlite3.Error as e:
-                                logging.error("Error %s:" % e.args[0])
+                                logging.error("Error SQLite SELECT: %s" % e.args[0])
                                 sys.exit(1)
                         finally:
                                 if con:
