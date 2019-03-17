@@ -57,7 +57,7 @@ activation of client OSes; for server OSes and Office >=5', type=int)
                             help='Use this flag to specify the activation interval (in minutes). Default is 120 minutes (2 hours).', type=int)
         parser.add_argument("-r", "--renewal-interval", dest="VLRenewalInterval", default=1440 * 7,
                             help='Use this flag to specify the renewal interval (in minutes). Default is 10080 minutes (7 days).', type=int)
-        parser.add_argument("-s", "--sqlite", dest="sqlite", action="store_const", const=True, default=False,
+        parser.add_argument("-s", "--sqlite", dest="sqlite", action="store_true",
                             help='Use this flag to store request information from unique clients in an SQLite database.')
         parser.add_argument("-w", "--hwid", dest="hwid", action="store", default='364F463A8863D35F',
                             help='Use this flag to specify a HWID. The HWID must be an 16-character string of hex characters. \
@@ -70,7 +70,7 @@ The default is \"364F463A8863D35F\" or type \"random\" to auto generate the HWID
         config.update(vars(parser.parse_args()))
 
         logging.basicConfig(level=config['loglevel'], format='%(asctime)s %(levelname)-8s %(message)s',
-                            datefmt='%a, %d %b %Y %H:%M:%S', filename=config['logfile'], filemode='w')
+                            datefmt='%a, %d %b %Y %H:%M:%S', filename=config['logfile'], filemode='a')
         # Random HWID.
         if config['hwid'] == "random":
                 randomhwid = uuid.uuid4().hex
@@ -113,17 +113,21 @@ The default is \"364F463A8863D35F\" or type \"random\" to auto generate the HWID
                 config['dbSupport'] = False
         else:
                 config['dbSupport'] = True
-                
-        server = socketserver.TCPServer((config['ip'], config['port']), kmsServer)
-        server.timeout = 5
-        logging.info("TCP server listening at %s on port %d." % (config['ip'], config['port']))
-        logging.info("HWID: %s" % binascii.b2a_hex(config['hwid']).decode('utf-8').upper())
-        server.serve_forever()
+        try:
+                server = socketserver.TCPServer((config['ip'], config['port']), kmsServer)
+                server.timeout = 5
+                logging.info("TCP server listening at %s on port %d." % (config['ip'], config['port']))
+                logging.info("HWID: %s" % binascii.b2a_hex(config['hwid']).decode('utf-8').upper())
+                server.serve_forever()
+        except:
+		        logging.error("Cannot bind address %s:%d" % (config['ip'], config['port']))
+
 
 
 class kmsServer(socketserver.BaseRequestHandler):
         def setup(self):
                 logging.info("Connection accepted: %s:%d" % (self.client_address[0], self.client_address[1]))
+                config['machineIp']=self.client_address[0]
 
         def handle(self):
                 while True:
@@ -168,6 +172,7 @@ class kmsServer(socketserver.BaseRequestHandler):
         def finish(self):
                 self.request.close()
                 logging.info("Connection closed: %s:%d" % (self.client_address[0], self.client_address[1]))
+                config['machineIp']=""
                 
 if __name__ == "__main__":
         main()
