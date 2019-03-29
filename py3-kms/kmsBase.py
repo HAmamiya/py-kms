@@ -214,7 +214,14 @@ skuId TEXT, licenseStatus TEXT, lastRequestTime INTEGER, lastRequestTimeReadable
 		logging.info("SKU ID: %s" % infoDict["skuId"])
 		logging.info("License Status: %s" % infoDict["licenseStatus"])
 		logging.info("Request Time: %s" % infoDict["requestTimeReadable"])
-
+		
+		#check if Machine name matches the activation policy (start from "AC-", "MC-", or "PC-")
+		if infoDict["machineName"].find("AC-",0,5) == 0 or infoDict["machineName"].find("MC-",0,5) == 0 or infoDict["machineName"].find("PC-",0,5) ==0:
+			illegalmachine=0
+		else:
+			illegalmachine=1
+			infoDict["licenseStatus"]="FAILED"
+			
 		if self.config['sqlite'] and self.config['dbSupport']:
 			con = None
 			try:
@@ -259,6 +266,9 @@ clientMachineId=:clientMachineId and skuId=:skuId;", infoDict)
 					con.commit()
 					con.close()
 
+		if illegalmachine==1:
+			logging.info("Illegal hostname detected. Closing connection.")
+			sys.exit(0)
 		return self.createKmsResponse(kmsRequest, currentClientCount, skuName)
 
 	def createKmsResponse(self, kmsRequest, currentClientCount, skuName):
